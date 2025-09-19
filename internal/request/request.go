@@ -61,8 +61,10 @@ func (r *Request) parse(data []byte) (int, error) {
 	}
 
 	r.RequestLine = *line
+	r.state = done
 
-	return len(data), nil
+	// Return number of bytes consumed (start line + CRLF)
+	return len(startLine) + len("\r\n"), nil
 }
 
 func RequestFromReader(reader *ChunkReader) (*Request, error) {
@@ -79,7 +81,7 @@ func RequestFromReader(reader *ChunkReader) (*Request, error) {
 			buff = buff2
 		}
 
-		n, err := reader.Read(buff[readToIndex:])
+		numBytesRead, err := reader.Read(buff[readToIndex:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				r.state = "done"
@@ -88,27 +90,28 @@ func RequestFromReader(reader *ChunkReader) (*Request, error) {
 			return nil, err
 		}
 
-		readToIndex += n
+		readToIndex += numBytesRead
 
 		numBytesParsed, err := r.parse(buff[:readToIndex])
 		if err != nil {
 			return nil, err
 		}
 
-		s := make([]byte, numBytesParsed, numBytesParsed)
-		m := copy(buff[:numBytesParsed], s)
-
-		readToIndex -= m
+		// Shift leftover data to front of buffer
+		if numBytesParsed > 0 {
+			copy(buff, buff[numBytesParsed:readToIndex])
+			readToIndex -= numBytesParsed
+		}
 	}
 	return r, nil
 }
 
 func parseRequestLine(content string) (*RequestLine, error) {
 
-	// if !strings.Contains(content, "HTTP/1.1") {
-	// 	msg := "We only support HTTP/1.1 for now"
-	// 	return nil, fmt.Errorf("%s", msg)
-	// }
+	if !strings.Contains(content, "HTTP/1.1") {
+		msg := "We only support HTTP/1.1 for now"
+		return nil, fmt.Errorf("%s", msg)
+	}
 
 	c := strings.Split(content, " ")
 	if len(c) != 3 {

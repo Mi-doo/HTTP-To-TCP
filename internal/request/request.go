@@ -50,7 +50,7 @@ func (cr *ChunkReader) Read(p []byte) (n int, err error) {
 }
 
 func (r *Request) parse(data []byte) (int, error) {
-	if !strings.Contains(string(data), "\r\n") {
+	if !strings.Contains(string(data), "\r\n") { // Very Important:
 		return 0, nil
 	}
 
@@ -67,24 +67,26 @@ func (r *Request) parse(data []byte) (int, error) {
 	return len(startLine) + len("\r\n"), nil
 }
 
-func RequestFromReader(reader *ChunkReader) (*Request, error) {
+func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	buff := make([]byte, bufferSize, bufferSize)
 	readToIndex := 0
 	r := &Request{
-		state: "initialized",
+		state: initialized,
 	}
-	for r.state != "done" {
+	for r.state != done {
 		if len(buff) == cap(buff) {
 			buff2 := make([]byte, len(buff)*2, cap(buff)*2)
 			copy(buff2, buff)
 			buff = buff2
 		}
 
+		// Read cr.numBytesPerRead into our buffer
+		// Return number of bytes copied!! to the buffer
 		numBytesRead, err := reader.Read(buff[readToIndex:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				r.state = "done"
+				r.state = done
 				break
 			}
 			return nil, err
@@ -98,6 +100,7 @@ func RequestFromReader(reader *ChunkReader) (*Request, error) {
 		}
 
 		// Shift leftover data to front of buffer
+		// Relevant if we send full request not just headline
 		if numBytesParsed > 0 {
 			copy(buff, buff[numBytesParsed:readToIndex])
 			readToIndex -= numBytesParsed

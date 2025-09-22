@@ -1,6 +1,7 @@
 package request
 
 import (
+	"HttpToTcp/internal/headers"
 	"errors"
 	"fmt"
 	"io"
@@ -12,12 +13,14 @@ const bufferSize = 8
 type state string
 
 const (
-	initialized state = "initialized"
-	done              = "done"
+	initialized                state = "initialized"
+	done                             = "done"
+	requestStateParsingHeaders       = "requestStateParsingHeaders"
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	state       state
 }
 
@@ -54,26 +57,35 @@ func (r *Request) parse(data []byte) (int, error) {
 		return 0, nil
 	}
 
-	startLine := strings.Split(string(data), "\r\n")[0]
-	line, err := parseRequestLine(startLine)
-	if err != nil {
-		return 0, err
+	//Depending on the numberBytesPerRead we can recieve data
+	//that exceeds \r\n so we only treat data before that (split)
+	//the lefovers will be shifted in the buffer
+	if r.state == initialized {
+		n, startLine, err := parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
+		r.RequestLine = *startLine
+		r.state = requestStateParsingHeaders
+
+		return n, nil
+	} else {
+		n, _, err := r.Headers.Parse([]byte(string(data)))
+		if err != nil {
+			return 0, err
+		}
+		return n, nil
 	}
-
-	r.RequestLine = *line
-	r.state = done
-
-	// Return number of bytes consumed (start line + CRLF)
-	return len(startLine) + len("\r\n"), nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-
 	buff := make([]byte, bufferSize, bufferSize)
 	readToIndex := 0
 	r := &Request{
 		state: initialized,
 	}
+	r.Headers = headers.NewHeaders()
+
 	for r.state != done {
 		if len(buff) == cap(buff) {
 			buff2 := make([]byte, len(buff)*2, cap(buff)*2)
@@ -100,7 +112,6 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 
 		// Shift leftover data to front of buffer
-		// Relevant if we send full request not just headline
 		if numBytesParsed > 0 {
 			copy(buff, buff[numBytesParsed:readToIndex])
 			readToIndex -= numBytesParsed
@@ -109,26 +120,28 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	return r, nil
 }
 
-func parseRequestLine(content string) (*RequestLine, error) {
+func parseRequestLine(data []byte) (int, *RequestLine, error) {
+	c := string(data)
 
-	if !strings.Contains(content, "HTTP/1.1") {
+	if !strings.Contains(c, "HTTP/1.1") {
 		msg := "We only support HTTP/1.1 for now"
-		return nil, fmt.Errorf("%s", msg)
+		return 0, nil, fmt.Errorf("%s", msg)
 	}
 
-	c := strings.Split(content, " ")
-	if len(c) != 3 {
+	c = strings.Split(c, "\r\n")[0] // [1] will be leftovers
+	l := strings.Fields(c)
+	if len(l) != 3 {
 		msg := "Request line is not correct"
-		return nil, fmt.Errorf("%s", msg)
+		return 0, nil, fmt.Errorf("%s", msg)
 	}
 
-	version := strings.Split(c[2], "/")[1]
+	version := strings.Split(l[2], "/")[1]
 
 	r := &RequestLine{
 		HttpVersion:   version,
-		RequestTarget: c[1],
-		Method:        c[0],
+		RequestTarget: l[1],
+		Method:        l[0],
 	}
 
-	return r, nil
+	return len(c) + len("\r\n"), r, nil
 }

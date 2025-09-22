@@ -12,10 +12,6 @@ func NewHeaders() (h Headers) {
 }
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
-	if !strings.Contains(string(data), "\r\n") {
-		return 0, false, nil
-	}
-
 	if strings.HasPrefix(string(data), "\r\n") {
 		return 0, true, nil
 	}
@@ -29,8 +25,17 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		return 0, false, err
 	}
 
-	key := strings.Split(arrString[0], ":")[0]
+	//Check for runes
+
+	key := strings.ToLower(strings.Split(arrString[0], ":")[0])
 	val := arrString[1]
+
+	//Check if key already exits
+	v, ok := h[key]
+	if ok {
+		val = strings.Join([]string{v, val}, ",")
+	}
+
 	h[key] = val
 
 	return len(timedString) + len("\r\n"), false, nil

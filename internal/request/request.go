@@ -81,41 +81,34 @@ func (r *Request) parse(data []byte) (int, error) {
 			r.state = requestStateParsingBody
 		}
 		return n, nil
-	}
+	} else {
+		content := r.Headers.Get("Content-Length")
+		if content != "" {
+			contentLenght, err := strconv.Atoi(content)
+			if err != nil {
+				r.state = done
+				return 0, err
+			}
 
-	r.state = done
-	return 0, nil
-}
-
-func (r *Request) parseBody(data []byte) (int, error) {
-	content := r.Headers.Get("Content-Length")
-	if content != "" {
-		contentLenght, err := strconv.Atoi(content)
-		if err != nil {
-			r.state = done
-			return 0, err
+			fmt.Println(">", contentLenght, len(data[2:]))
+			if contentLenght == len(data[2:]) {
+				r.Body = data[2:]
+				r.state = done
+				return len(data), nil
+			} else {
+				r.state = done
+				msg := "Invalid Content-Length"
+				return 0, fmt.Errorf("%s", msg)
+			}
 		}
-
-		fmt.Println(">", contentLenght, len(data[2:]))
-		if contentLenght == len(data[2:]) {
-			r.Body = data[2:]
-			r.state = done
-			return len(data), nil
-		} else {
-			r.state = done
-			msg := "Invalid Content-Length"
-			return 0, fmt.Errorf("%s", msg)
-		}
+		r.state = done
+		return 0, nil
 	}
-	r.state = done
-	return 0, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	buff := make([]byte, bufferSize, bufferSize)
 	readToIndex := 0
-	numBytesParsed := 0
-
 	r := &Request{
 		state: initialized,
 	}
@@ -134,7 +127,6 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				r.state = done
-				break
 			}
 			return nil, err
 		}
@@ -144,13 +136,6 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		numBytesParsed, err := r.parse(buff[:readToIndex])
 		if err != nil {
 			return nil, err
-		}
-
-		if r.state == requestStateParsingBody {
-			numBytesParsed, err := r.parseBody(buff[:readToIndex])
-			if err != nil {
-				return nil, err
-			}
 		}
 
 		// Shift leftover data to front of buffer

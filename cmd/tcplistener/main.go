@@ -47,15 +47,19 @@ func main() {
 
 		fmt.Println("Connection Accepted")
 
-		context, err := request.RequestFromReader(conn)
+		r, err := request.RequestFromReader(conn)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
 		fmt.Println("Request Line:")
-		fmt.Println("Method: ", context.RequestLine.Method)
-		fmt.Println("Target: ", context.RequestLine.RequestTarget)
-		fmt.Println("Version: ", context.RequestLine.HttpVersion)
+		fmt.Println(" - Method: ", r.RequestLine.Method)
+		fmt.Println(" - Target: ", r.RequestLine.RequestTarget)
+		fmt.Println(" - Version: ", r.RequestLine.HttpVersion)
+		fmt.Println("Headers:")
+		for k, v := range r.Headers {
+			fmt.Printf(" - %s: %s\n", k, v)
+		}
 	}
 
 }

@@ -5,22 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
 const bufferSize = 8
 
-type state string
+type state int
 
 const (
-	initialized                state = "initialized"
-	done                             = "done"
-	requestStateParsingHeaders       = "requestStateParsingHeaders"
+	initialized state = iota
+	done
+	requestStateParsingHeaders
+	requestStateParsingBody
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	state       state
 }
 
@@ -69,18 +72,50 @@ func (r *Request) parse(data []byte) (int, error) {
 		r.state = requestStateParsingHeaders
 
 		return n, nil
-	} else {
-		n, _, err := r.Headers.Parse([]byte(string(data)))
+	} else if r.state == requestStateParsingHeaders {
+		n, ok, err := r.Headers.Parse([]byte(string(data)))
 		if err != nil {
 			return 0, err
 		}
+		if ok {
+			r.state = requestStateParsingBody
+		}
 		return n, nil
 	}
+
+	r.state = done
+	return 0, nil
+}
+
+func (r *Request) parseBody(data []byte) (int, error) {
+	content := r.Headers.Get("Content-Length")
+	if content != "" {
+		contentLenght, err := strconv.Atoi(content)
+		if err != nil {
+			r.state = done
+			return 0, err
+		}
+
+		fmt.Println(">", contentLenght, len(data[2:]))
+		if contentLenght == len(data[2:]) {
+			r.Body = data[2:]
+			r.state = done
+			return len(data), nil
+		} else {
+			r.state = done
+			msg := "Invalid Content-Length"
+			return 0, fmt.Errorf("%s", msg)
+		}
+	}
+	r.state = done
+	return 0, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	buff := make([]byte, bufferSize, bufferSize)
 	readToIndex := 0
+	numBytesParsed := 0
+
 	r := &Request{
 		state: initialized,
 	}
@@ -109,6 +144,13 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		numBytesParsed, err := r.parse(buff[:readToIndex])
 		if err != nil {
 			return nil, err
+		}
+
+		if r.state == requestStateParsingBody {
+			numBytesParsed, err := r.parseBody(buff[:readToIndex])
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		// Shift leftover data to front of buffer

@@ -77,32 +77,31 @@ func (r *Request) parse(data []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		//TODO: Handle correct runes
 		if ok {
 			r.state = requestStateParsingBody
 		}
 		return n, nil
 	} else {
 		content := r.Headers.Get("Content-Length")
-		if content != "" {
-			contentLenght, err := strconv.Atoi(content)
-			if err != nil {
-				r.state = done
-				return 0, err
-			}
-
-			fmt.Println(">", contentLenght, len(data[2:]))
-			if contentLenght == len(data[2:]) {
-				r.Body = data[2:]
-				r.state = done
-				return len(data), nil
-			} else {
-				r.state = done
-				msg := "Invalid Content-Length"
-				return 0, fmt.Errorf("%s", msg)
-			}
+		contentLenght, err := strconv.Atoi(content)
+		if err != nil {
+			r.state = done
+			return 0, err
 		}
-		r.state = done
-		return 0, nil
+
+		if contentLenght == len(data[2:]) {
+			r.Body = data[2:]
+			r.state = done
+			return len(data), nil
+		} else if contentLenght > len(data[2:]) {
+			// TODO: what if Content-Length is always larger
+			return 0, nil
+		} else {
+			r.state = done
+			msg := "Invalid Content-Length"
+			return 0, fmt.Errorf("%s", msg)
+		}
 	}
 }
 
@@ -115,7 +114,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	r.Headers = headers.NewHeaders()
 
 	for r.state != done {
-		if len(buff) == cap(buff) {
+		if readToIndex == len(buff) && len(buff) == cap(buff) {
 			buff2 := make([]byte, len(buff)*2, cap(buff)*2)
 			copy(buff2, buff)
 			buff = buff2
@@ -127,6 +126,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				r.state = done
+				break
 			}
 			return nil, err
 		}
@@ -144,6 +144,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			readToIndex -= numBytesParsed
 		}
 	}
+
 	return r, nil
 }
 
